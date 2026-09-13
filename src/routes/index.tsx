@@ -16,6 +16,8 @@ import {
   setRunStamp,
   trackRequest,
 } from "@/lib/run-token";
+import { DiagnosticsPanel } from "@/components/DiagnosticsPanel";
+import { describe, diag, installDiagnostics, logFailure, logInfo } from "@/lib/diag";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -1011,7 +1013,10 @@ function Index() {
         activeRunRef.current = { key, data };
         await saveProgress(key, data);
       }
-      setError(e instanceof Error ? e.message : String(e));
+      logFailure("run", "The run stopped because of this error", e);
+      setError(
+        `${e instanceof Error ? e.message : String(e)} — open “Log & problems” below for the full detail.`,
+      );
       setPhase("error");
     } finally {
       if (checkpointTimer) clearInterval(checkpointTimer);
