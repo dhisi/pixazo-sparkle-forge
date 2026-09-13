@@ -123,9 +123,11 @@ const IMAGE_BATCH = 4;
  * again in the page doubled the traffic per panel for no extra signal.
  */
 const CLIENT_BLANK_CHECK = false;
-const PROMPT_IDLE_TIMEOUT_MS = 150_000;
-/** Hard ceiling for one prompt batch, heartbeats included. */
-const PROMPT_TOTAL_DEADLINE_MS = 12 * 60_000;
+/**
+ * No prompt-batch timeouts at all. Cutting a batch off after a few minutes
+ * killed healthy work and forced endless retries, which is what made later
+ * scripts stall. A batch now runs until it answers, fails, or Insta Kill.
+ */
 /** Panels shown in the preview grid before "show all" (a 2h script has 1000+). */
 const PREVIEW_LIMIT = 60;
 
@@ -251,12 +253,10 @@ function useSwallowCancellations() {
 }
 
 /**
- * A drawing round trip is never allowed to hang the lane forever. The server
- * retries a panel up to six times at 60s each, so anything past this ceiling is
- * a stuck request: the batch fails, the panels go back on the queue and another
- * lane picks them up instead of the run freezing midway.
+ * Practically no ceiling: a drawing round trip is left alone until it answers.
+ * The old eight-minute cut-off was throwing away healthy renders.
  */
-const IMAGE_REQUEST_DEADLINE_MS = 8 * 60_000;
+const IMAGE_REQUEST_DEADLINE_MS = 6 * 60 * 60_000;
 
 async function getPrompts(input: PromptRequest): Promise<{ prompts: string[] }> {
   const label = `${input.from}-${input.to}`;
@@ -265,30 +265,14 @@ async function getPrompts(input: PromptRequest): Promise<{ prompts: string[] }> 
   console.log(`[client] prompts request ${label} started`);
   const controller = new AbortController();
   const untrack = trackRequest(controller);
-  let idleTimer = window.setTimeout(
-    () => controller.abort("Prompt stream stopped responding"),
-    PROMPT_IDLE_TIMEOUT_MS,
-  );
-  const activity = () => {
-    window.clearTimeout(idleTimer);
-    idleTimer = window.setTimeout(
-      () => controller.abort("Prompt stream stopped responding"),
-      PROMPT_IDLE_TIMEOUT_MS,
-    );
-  };
-  // Heartbeats keep the idle timer alive forever, so a batch whose upstream
-  // work never finishes would hang the run. This hard deadline ends it and the
-  // range simply retries.
-  const deadlineTimer = window.setTimeout(
-    () => controller.abort("Prompt batch took too long"),
-    PROMPT_TOTAL_DEADLINE_MS,
-  );
+  // No idle timer and no batch deadline: the stream is only ever stopped by the
+  // server finishing, a real failure, or Insta Kill.
+  const idleTimer = 0;
+  const activity = () => {};
   let cleaned = false;
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
-    window.clearTimeout(idleTimer);
-    window.clearTimeout(deadlineTimer);
     untrack();
   };
   try {
@@ -684,17 +668,15 @@ function Index() {
             // take days.
             let res: { prompts: string[] } | undefined;
             let lastErr: unknown;
-            for (let attempt = 0; attempt < 4 && !cancelRef.current; attempt++) {
+            for (let attempt = 0; attempt < 6 && !cancelRef.current; attempt++) {
               if (attempt > 0) {
-                // Say what actually happened. The old text claimed the writer
-                // was busy for EVERY failure, so an idle site still reported
-                // "Writer busy" on an unrelated hiccup.
                 const why = lastErr instanceof Error ? lastErr.message : "";
                 const limited = /rate limit|busy|1015|429|too many/i.test(why);
                 setNote(
-                  `${limited ? "Agnes temporarily blocked the request — cooling down" : "Retrying"} — timestamps ${range.from}-${range.to} (try ${attempt + 1})`,
+                  `${limited ? "Agnes briefly blocked the request — short cooldown" : "Retrying"} — timestamps ${range.from}-${range.to} (try ${attempt + 1})`,
                 );
-                await new Promise((r) => setTimeout(r, limited ? 120_000 : 5_000 * attempt));
+                // Short waits only: long cool-downs made the page look frozen.
+                await new Promise((r) => setTimeout(r, limited ? 15_000 : 3_000 * attempt));
                 if (cancelRef.current) break;
               }
               try {

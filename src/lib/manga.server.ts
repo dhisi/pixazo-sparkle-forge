@@ -7,7 +7,7 @@ const PIXAZO_URL = "https://gateway.pixazo.ai/flux-1-schnell/v1/getData";
 // Generation can legitimately take minutes when the renderer is busy. A short
 // deadline used to kill healthy renders at 60s and made long runs look stuck,
 // so this is only a very generous safety net, never a fast-fail.
-const IMAGE_REQUEST_TIMEOUT_MS = 180_000;
+const IMAGE_REQUEST_TIMEOUT_MS = 1_800_000;
 
 /**
  * Renderer-only art direction. The writing model describes only scene content;
@@ -193,7 +193,7 @@ export async function buildCharacterBible(script: string): Promise<string> {
     const out = await textChat(system, `FULL SCRIPT:\n${body}`, {
       temperature: 0.4,
       maxOutputTokens: 4_000,
-      timeoutMs: 180_000,
+      timeoutMs: 1_800_000,
       attempts: 2,
     });
     const bible = stripFences(out).slice(0, 4000);
@@ -449,7 +449,7 @@ export async function writePrompts(
       {
         temperature: temp,
         maxOutputTokens: Math.min(32_000, 700 + want.length * 160),
-        timeoutMs: 600_000,
+        timeoutMs: 3_600_000,
         attempts: 3,
       },
     );
