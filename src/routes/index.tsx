@@ -452,7 +452,11 @@ function Index() {
   }, [instaKillAll]);
 
   shotsRef.current = shots;
-
+  // Start capturing everything — logs, crashes, failed requests — the moment
+  // the page is interactive, so no problem can happen unrecorded.
+  useEffect(() => {
+    installDiagnostics();
+  }, []);
 
   // Checkpoint as soon as the tab is hidden; mobile browsers may discard it later.
   useEffect(() => {
