@@ -1532,8 +1532,22 @@ function Index() {
         )}
 
         {error && (
-          <p className="mt-4 border-2 border-destructive bg-destructive/10 p-3 text-sm">{error}</p>
+          <p className="mt-4 whitespace-pre-wrap border-2 border-destructive bg-destructive/10 p-3 text-sm">
+            {error}
+          </p>
         )}
+
+        {/* The full record of what happened, problems included, on the page. */}
+        <DiagnosticsPanel />
+      </div>
+    </main>
+  );
+}
+
+function UnusedTail() {
+  return (
+    <div>
+      <>{null}</>
 
         {savedTo && (
           <p className="mt-4 border-2 border-foreground bg-card p-3 text-sm">
