@@ -696,9 +696,10 @@ function Index() {
                 break;
               } catch (e) {
                 lastErr = e;
-                console.error(
-                  `[client] range ${range.from}-${range.to} attempt ${attempt + 1} failed:`,
-                  e instanceof Error ? e.message : e,
+                logFailure(
+                  "prompts",
+                  `Timestamps ${range.from}-${range.to}: try ${attempt + 1} failed`,
+                  e,
                 );
               }
             }
@@ -710,6 +711,10 @@ function Index() {
               // neighbour's prompt) and is picked up by the repair sweep below.
               const slot = prompts[position];
               if (!hasPrompt(slot)) {
+                logWarn(
+                  "prompts",
+                  `Panel #${s.index + 1} came back without a prompt — it will be retried by the repair sweep`,
+                );
                 record(s.index, { prompt: undefined, status: "error", error: "prompt missing" });
                 return;
               }
@@ -719,7 +724,11 @@ function Index() {
             });
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
-            console.error(`[client] range ${range.from}-${range.to} failed: ${msg}`);
+            logFailure(
+              "prompts",
+              `Timestamps ${range.from}-${range.to} gave up after every try`,
+              e,
+            );
             targets.forEach((s) => record(s.index, { status: "error", error: msg }));
           }
 
