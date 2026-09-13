@@ -27,56 +27,18 @@ function apiKey(): string {
 
 /** Largest answer to ask for. */
 const MAX_OUT = 60_000;
-/** Minimum gap between two request STARTS (spaces the account's rate limit). */
-const MIN_GAP_MS = 1_500;
 /**
- * Agnes' Cloudflare edge also limits a burst that begins immediately after a
- * long streamed response finishes. Space requests from the previous FINISH,
- * not only its start, so sequential 30-timestamp batches do not look like a
- * burst even though this process never overlaps them.
+ * No queue, no spacing, no slot bookkeeping.
+ *
+ * A single global "one request at a time" gate used to be held by handlers the
+ * platform tore down mid-request, so a later run could not get the slot at all:
+ * the first script worked, the second crawled and the third looked frozen at
+ * start-up. Requests now go straight upstream; only a genuine provider 429/1015
+ * causes a wait, and that wait is bounded.
  */
-const MIN_COMPLETION_GAP_MS = 20_000;
-/**
- * Exactly ONE text request may be in flight per server process. The provider
- * answers Cloudflare error 1015 as soon as calls overlap, and a rate-limited
- * account then hands back multi-minute waits that stall a whole run.
- */
-const MAX_IN_FLIGHT = 1;
-/** Longest a call may wait for its turn before giving up instead of hanging. */
-const MAX_QUEUE_WAIT_MS = 420_000;
-/**
- * No retry ever waits longer than this, whatever the provider asks for in a
- * Retry-After header. Long enough for a real 1015 block in front of the
- * provider to clear, short enough that a run never looks frozen for minutes.
- */
-const MAX_RETRY_DELAY_MS = 180_000;
-/**
- * A held slot is only ever real for as long as one upstream attempt can last.
- * Anything older is a leak (a handler the platform tore down mid-request, a
- * dropped page whose work was never unwound) and used to make a completely idle
- * server keep reporting "writer busy" to the next visitor. Stale slots are
- * reclaimed instead of blocking the queue forever.
- */
-const SLOT_STALE_MS = 11 * 60_000;
-
-let lastUsed = 0;
-let lastCompleted = 0;
-/** Start time of every slot currently believed to be in flight. */
-let slots: number[] = [];
-const waiting: (() => void)[] = [];
+const MAX_RETRY_DELAY_MS = 60_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/** Drops leaked slots and returns how many are genuinely in flight. */
-function activeSlots(): number {
-  const cutoff = Date.now() - SLOT_STALE_MS;
-  const before = slots.length;
-  slots = slots.filter((at) => at > cutoff);
-  if (slots.length !== before) {
-    console.warn(`[agnes] reclaimed ${before - slots.length} stale text slot(s)`);
-  }
-  return slots.length;
-}
 
 /** Waits in short slices, giving up the moment the run is killed. */
 async function backoff(ms: number): Promise<void> {
@@ -87,58 +49,6 @@ async function backoff(ms: number): Promise<void> {
     await sleep(Math.min(step, total - waited));
   }
   assertActive();
-}
-
-/**
- * Takes the single text slot. Request starts are also spaced by MIN_GAP_MS so
- * the provider's rate limit is never raced. A caller that cannot get the slot
- * in time fails fast instead of making the page look stuck forever, and queued
- * work stops immediately when the run is killed.
- */
-async function acquire(): Promise<number> {
-  while (activeSlots() >= MAX_IN_FLIGHT) {
-    // Wake on release, and also on a short poll so a leaked slot can never
-    // hold the queue: activeSlots() retires it on the next loop.
-    const waited = await new Promise<boolean>((resolve) => {
-      let settled = false;
-      const finish = (released: boolean) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(poll);
-        clearTimeout(giveUp);
-        const i = waiting.indexOf(wake);
-        if (i >= 0) waiting.splice(i, 1);
-        resolve(released);
-      };
-      const wake = () => finish(true);
-      const poll = setTimeout(() => finish(true), 1_000);
-      const giveUp = setTimeout(() => finish(false), MAX_QUEUE_WAIT_MS);
-      waiting.push(wake);
-    });
-    if (!waited) {
-      throw new Error("The writing service is still finishing an earlier request — retrying");
-    }
-    // Whatever happened while queueing, a killed run never takes the slot.
-    assertActive();
-  }
-  assertActive();
-  const token = Date.now();
-  slots.push(token);
-  const gap = Math.max(
-    MIN_GAP_MS - (Date.now() - lastUsed),
-    MIN_COMPLETION_GAP_MS - (Date.now() - lastCompleted),
-  );
-  if (gap > 0) await sleep(gap);
-  assertActive();
-  lastUsed = Date.now();
-  return token;
-}
-
-function release(token: number): void {
-  const i = slots.indexOf(token);
-  if (i >= 0) slots.splice(i, 1);
-  lastCompleted = Date.now();
-  waiting.shift()?.();
 }
 
 /** True when the provider is momentarily busy — retry the same model. */
