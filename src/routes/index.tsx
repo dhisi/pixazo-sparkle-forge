@@ -16,6 +16,8 @@ import {
   setRunStamp,
   trackRequest,
 } from "@/lib/run-token";
+import { DiagnosticsPanel } from "@/components/DiagnosticsPanel";
+import { describe, installDiagnostics, logFailure, logInfo, logWarn } from "@/lib/diag";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -450,7 +452,11 @@ function Index() {
   }, [instaKillAll]);
 
   shotsRef.current = shots;
-
+  // Start capturing everything — logs, crashes, failed requests — the moment
+  // the page is interactive, so no problem can happen unrecorded.
+  useEffect(() => {
+    installDiagnostics();
+  }, []);
 
   // Checkpoint as soon as the tab is hidden; mobile browsers may discard it later.
   useEffect(() => {
@@ -690,9 +696,10 @@ function Index() {
                 break;
               } catch (e) {
                 lastErr = e;
-                console.error(
-                  `[client] range ${range.from}-${range.to} attempt ${attempt + 1} failed:`,
-                  e instanceof Error ? e.message : e,
+                logFailure(
+                  "prompts",
+                  `Timestamps ${range.from}-${range.to}: try ${attempt + 1} failed`,
+                  e,
                 );
               }
             }
@@ -704,6 +711,10 @@ function Index() {
               // neighbour's prompt) and is picked up by the repair sweep below.
               const slot = prompts[position];
               if (!hasPrompt(slot)) {
+                logWarn(
+                  "prompts",
+                  `Panel #${s.index + 1} came back without a prompt — it will be retried by the repair sweep`,
+                );
                 record(s.index, { prompt: undefined, status: "error", error: "prompt missing" });
                 return;
               }
@@ -713,7 +724,11 @@ function Index() {
             });
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
-            console.error(`[client] range ${range.from}-${range.to} failed: ${msg}`);
+            logFailure(
+              "prompts",
+              `Timestamps ${range.from}-${range.to} gave up after every try`,
+              e,
+            );
             targets.forEach((s) => record(s.index, { status: "error", error: msg }));
           }
 
@@ -896,19 +911,26 @@ function Index() {
                         IMAGE_REQUEST_DEADLINE_MS,
                       );
                       url = res.url;
-                    } catch {
+                    } catch (e) {
+                      logFailure("draw", `Panel #${r.index + 1}: single redraw failed`, e);
                       url = null;
                     }
                   }
                   if (url && (!CLIENT_BLANK_CHECK || !(await isBlankImageUrl(url)))) {
                     record(r.index, { url, prompt, status: "done", error: undefined });
                   } else if (job) {
+                    logWarn("draw", `Panel #${r.index + 1}: blank image came back — queued again`);
                     requeue(job, "blank image");
                   } else {
+                    logFailure("draw", `Panel #${r.index + 1}: blank image, no retry left`);
                     record(r.index, { status: "error", error: "blank image" });
                   }
                   return;
                 }
+                logFailure(
+                  "draw",
+                  `Panel #${r.index + 1} did not render: ${r.error ?? "render failed"}`,
+                );
                 if (job) {
                   requeue(job, r.error ?? "render failed");
                 } else {
@@ -1011,7 +1033,10 @@ function Index() {
         activeRunRef.current = { key, data };
         await saveProgress(key, data);
       }
-      setError(e instanceof Error ? e.message : String(e));
+      logFailure("run", "The run stopped because of this error", e);
+      setError(
+        `${e instanceof Error ? e.message : String(e)} — open “Log & problems” below for the full detail.`,
+      );
       setPhase("error");
     } finally {
       if (checkpointTimer) clearInterval(checkpointTimer);
@@ -1292,7 +1317,10 @@ function Index() {
       }
       setPhase("done");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      logFailure("video", "Building the video failed", e);
+      setError(
+        `Video build failed: ${describe(e)}\nThe full detail is in “Log & problems” below.`,
+      );
       setPhase("error");
     }
   }
@@ -1523,8 +1551,11 @@ function Index() {
         )}
 
         {error && (
-          <p className="mt-4 border-2 border-destructive bg-destructive/10 p-3 text-sm">{error}</p>
+          <p className="mt-4 whitespace-pre-wrap border-2 border-destructive bg-destructive/10 p-3 text-sm">
+            {error}
+          </p>
         )}
+
 
         {savedTo && (
           <p className="mt-4 border-2 border-foreground bg-card p-3 text-sm">
@@ -1618,6 +1649,9 @@ function Index() {
             )}
           </>
         )}
+
+        {/* The full record of what happened, problems included, on the page. */}
+        <DiagnosticsPanel />
       </div>
     </main>
   );
