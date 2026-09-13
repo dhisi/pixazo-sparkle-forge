@@ -253,12 +253,10 @@ function useSwallowCancellations() {
 }
 
 /**
- * A drawing round trip is never allowed to hang the lane forever. The server
- * retries a panel up to six times at 60s each, so anything past this ceiling is
- * a stuck request: the batch fails, the panels go back on the queue and another
- * lane picks them up instead of the run freezing midway.
+ * Practically no ceiling: a drawing round trip is left alone until it answers.
+ * The old eight-minute cut-off was throwing away healthy renders.
  */
-const IMAGE_REQUEST_DEADLINE_MS = 8 * 60_000;
+const IMAGE_REQUEST_DEADLINE_MS = 6 * 60 * 60_000;
 
 async function getPrompts(input: PromptRequest): Promise<{ prompts: string[] }> {
   const label = `${input.from}-${input.to}`;
@@ -267,30 +265,14 @@ async function getPrompts(input: PromptRequest): Promise<{ prompts: string[] }> 
   console.log(`[client] prompts request ${label} started`);
   const controller = new AbortController();
   const untrack = trackRequest(controller);
-  let idleTimer = window.setTimeout(
-    () => controller.abort("Prompt stream stopped responding"),
-    PROMPT_IDLE_TIMEOUT_MS,
-  );
-  const activity = () => {
-    window.clearTimeout(idleTimer);
-    idleTimer = window.setTimeout(
-      () => controller.abort("Prompt stream stopped responding"),
-      PROMPT_IDLE_TIMEOUT_MS,
-    );
-  };
-  // Heartbeats keep the idle timer alive forever, so a batch whose upstream
-  // work never finishes would hang the run. This hard deadline ends it and the
-  // range simply retries.
-  const deadlineTimer = window.setTimeout(
-    () => controller.abort("Prompt batch took too long"),
-    PROMPT_TOTAL_DEADLINE_MS,
-  );
+  // No idle timer and no batch deadline: the stream is only ever stopped by the
+  // server finishing, a real failure, or Insta Kill.
+  const idleTimer = 0;
+  const activity = () => {};
   let cleaned = false;
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
-    window.clearTimeout(idleTimer);
-    window.clearTimeout(deadlineTimer);
     untrack();
   };
   try {
