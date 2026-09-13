@@ -123,9 +123,11 @@ const IMAGE_BATCH = 4;
  * again in the page doubled the traffic per panel for no extra signal.
  */
 const CLIENT_BLANK_CHECK = false;
-const PROMPT_IDLE_TIMEOUT_MS = 150_000;
-/** Hard ceiling for one prompt batch, heartbeats included. */
-const PROMPT_TOTAL_DEADLINE_MS = 12 * 60_000;
+/**
+ * No prompt-batch timeouts at all. Cutting a batch off after a few minutes
+ * killed healthy work and forced endless retries, which is what made later
+ * scripts stall. A batch now runs until it answers, fails, or Insta Kill.
+ */
 /** Panels shown in the preview grid before "show all" (a 2h script has 1000+). */
 const PREVIEW_LIMIT = 60;
 
