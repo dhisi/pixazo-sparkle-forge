@@ -911,19 +911,26 @@ function Index() {
                         IMAGE_REQUEST_DEADLINE_MS,
                       );
                       url = res.url;
-                    } catch {
+                    } catch (e) {
+                      logFailure("draw", `Panel #${r.index + 1}: single redraw failed`, e);
                       url = null;
                     }
                   }
                   if (url && (!CLIENT_BLANK_CHECK || !(await isBlankImageUrl(url)))) {
                     record(r.index, { url, prompt, status: "done", error: undefined });
                   } else if (job) {
+                    logWarn("draw", `Panel #${r.index + 1}: blank image came back — queued again`);
                     requeue(job, "blank image");
                   } else {
+                    logFailure("draw", `Panel #${r.index + 1}: blank image, no retry left`);
                     record(r.index, { status: "error", error: "blank image" });
                   }
                   return;
                 }
+                logFailure(
+                  "draw",
+                  `Panel #${r.index + 1} did not render: ${r.error ?? "render failed"}`,
+                );
                 if (job) {
                   requeue(job, r.error ?? "render failed");
                 } else {
@@ -1310,7 +1317,10 @@ function Index() {
       }
       setPhase("done");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      logFailure("video", "Building the video failed", e);
+      setError(
+        `Video build failed: ${describe(e)}\nThe full detail is in “Log & problems” below.`,
+      );
       setPhase("error");
     }
   }
