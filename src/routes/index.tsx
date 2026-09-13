@@ -668,17 +668,15 @@ function Index() {
             // take days.
             let res: { prompts: string[] } | undefined;
             let lastErr: unknown;
-            for (let attempt = 0; attempt < 4 && !cancelRef.current; attempt++) {
+            for (let attempt = 0; attempt < 6 && !cancelRef.current; attempt++) {
               if (attempt > 0) {
-                // Say what actually happened. The old text claimed the writer
-                // was busy for EVERY failure, so an idle site still reported
-                // "Writer busy" on an unrelated hiccup.
                 const why = lastErr instanceof Error ? lastErr.message : "";
                 const limited = /rate limit|busy|1015|429|too many/i.test(why);
                 setNote(
-                  `${limited ? "Agnes temporarily blocked the request — cooling down" : "Retrying"} — timestamps ${range.from}-${range.to} (try ${attempt + 1})`,
+                  `${limited ? "Agnes briefly blocked the request — short cooldown" : "Retrying"} — timestamps ${range.from}-${range.to} (try ${attempt + 1})`,
                 );
-                await new Promise((r) => setTimeout(r, limited ? 120_000 : 5_000 * attempt));
+                // Short waits only: long cool-downs made the page look frozen.
+                await new Promise((r) => setTimeout(r, limited ? 15_000 : 3_000 * attempt));
                 if (cancelRef.current) break;
               }
               try {
