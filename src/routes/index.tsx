@@ -17,7 +17,7 @@ import {
   trackRequest,
 } from "@/lib/run-token";
 import { DiagnosticsPanel } from "@/components/DiagnosticsPanel";
-import { describe, diag, installDiagnostics, logFailure, logInfo } from "@/lib/diag";
+import { describe, installDiagnostics, logFailure, logInfo, logWarn } from "@/lib/diag";
 
 export const Route = createFileRoute("/")({
   head: () => ({
