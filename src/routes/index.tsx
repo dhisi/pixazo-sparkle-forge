@@ -1630,6 +1630,9 @@ function Index() {
             )}
           </>
         )}
+
+        {/* The full record of what happened, problems included, on the page. */}
+        <DiagnosticsPanel />
       </div>
     </main>
   );
