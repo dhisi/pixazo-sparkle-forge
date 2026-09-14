@@ -50,6 +50,42 @@ let blockedUntil = 0;
 let lastStart = 0;
 const MIN_GAP_MS = 2_000;
 
+/**
+ * Exactly ONE text request may be in flight per server process — this is what
+ * the earlier version of this app did, and why it never tripped the provider's
+ * edge rate limit (Cloudflare 1015). Spacing request STARTS is not enough on
+ * its own: several long streams still overlap and count as a burst.
+ */
+const MAX_IN_FLIGHT = 1;
+/** Longest a call may wait for its turn before failing instead of hanging. */
+const MAX_QUEUE_WAIT_MS = 900_000;
+let inFlight = 0;
+const waitingForSlot: (() => void)[] = [];
+
+async function acquireSlot(): Promise<void> {
+  if (inFlight >= MAX_IN_FLIGHT) {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const i = waitingForSlot.indexOf(wake);
+        if (i >= 0) waitingForSlot.splice(i, 1);
+        reject(new Error("Text engine busy: too many requests queued, please retry"));
+      }, MAX_QUEUE_WAIT_MS);
+      const wake = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      waitingForSlot.push(wake);
+    });
+  }
+  assertActive();
+  inFlight++;
+}
+
+function releaseSlot(): void {
+  inFlight = Math.max(0, inFlight - 1);
+  waitingForSlot.shift()?.();
+}
+
 async function waitForSlot(): Promise<void> {
   for (;;) {
     assertActive();
