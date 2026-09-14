@@ -11,6 +11,9 @@ function time(at: number): string {
   return new Date(at).toLocaleTimeString(undefined, { hour12: false });
 }
 
+/** Stable reference: React requires getServerSnapshot to be cached. */
+const EMPTY: DiagEntry[] = [];
+
 const COLOR: Record<DiagEntry["level"], string> = {
   info: "text-muted-foreground",
   warn: "text-primary",
@@ -25,7 +28,7 @@ const COLOR: Record<DiagEntry["level"], string> = {
  * tap away from being copied.
  */
 export function DiagnosticsPanel() {
-  const entries = useSyncExternalStore(diagSubscribe, diagSnapshot, () => [] as DiagEntry[]);
+  const entries = useSyncExternalStore(diagSubscribe, diagSnapshot, () => EMPTY);
   const [open, setOpen] = useState(false);
   const [errorsOnly, setErrorsOnly] = useState(false);
   const [copied, setCopied] = useState(false);
