@@ -178,8 +178,17 @@ async function callAgnes(user: string, opts: ChatOptions): Promise<string> {
           const base = rateLimited
             ? Math.min(MAX_RETRY_DELAY_MS, 60_000 * 2 ** attempt)
             : 3_000 * (attempt + 1);
+          const wait = retryAfter > 0 ? Math.max(retryAfter * 1000 + 500, base) : base;
+          if (rateLimited) {
+            // Every other caller waits this out too, instead of each one hitting
+            // the same block and extending it.
+            blockedUntil = Math.max(blockedUntil, Date.now() + wait);
+            console.error(
+              `[agnes] rate limited (${res.status}) — all requests paused for ${Math.round(wait / 1000)}s`,
+            );
+          }
           if (attempt + 1 < attempts) {
-            await backoff(retryAfter > 0 ? Math.max(retryAfter * 1000 + 500, base) : base);
+            await backoff(wait);
           }
           continue;
         }
