@@ -207,8 +207,11 @@ async function callAgnes(user: string, opts: ChatOptions): Promise<string> {
     }
 
     throw new Error(`Agnes request failed: ${lastErr}`);
+  } finally {
+    releaseSlot();
   }
 }
+
 
 export function engineStatus(): { model: string; keyIndex: number; keys: number } {
   return { model: model(), keyIndex: 1, keys: 1 };
