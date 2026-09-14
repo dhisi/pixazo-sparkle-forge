@@ -111,6 +111,9 @@ async function callAgnes(user: string, opts: ChatOptions): Promise<string> {
       const started = Date.now();
       // A killed run never makes another upstream request.
       assertActive();
+      // Respects any shared cool-down and keeps calls spaced apart, so a burst
+      // never triggers the provider's edge rate limit in the first place.
+      await waitForSlot();
       console.log(
         `[agnes] request attempt ${attempt + 1}/${attempts} model=${model()} inChars=${user.length} maxOut=${Math.min(MAX_OUT, opts.maxOutputTokens ?? 16_000)}`,
       );
