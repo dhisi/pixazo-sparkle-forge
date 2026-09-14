@@ -103,7 +103,8 @@ export function agnesChat(user: string, opts: ChatOptions = {}): Promise<string>
 
 
 async function callAgnes(user: string, opts: ChatOptions): Promise<string> {
-  {
+  await acquireSlot();
+  try {
     const attempts = opts.attempts ?? 8;
     let lastErr = "";
 
