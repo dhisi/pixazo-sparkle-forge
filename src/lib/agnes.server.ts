@@ -40,6 +40,28 @@ const MAX_RETRY_DELAY_MS = 60_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Shared cool-down. A 429 / Cloudflare 1015 is an edge block on the whole
+ * account, not on one request, so EVERY caller waits it out instead of each
+ * one discovering the block for itself and extending it.
+ */
+let blockedUntil = 0;
+/** When the last upstream call was started, used to space calls apart. */
+let lastStart = 0;
+const MIN_GAP_MS = 2_000;
+
+async function waitForSlot(): Promise<void> {
+  for (;;) {
+    assertActive();
+    const now = Date.now();
+    const wait = Math.max(blockedUntil - now, lastStart + MIN_GAP_MS - now);
+    if (wait <= 0) break;
+    console.log(`[agnes] holding ${Math.round(wait / 1000)}s (shared cool-down)`);
+    await backoff(Math.min(wait, 10_000));
+  }
+  lastStart = Date.now();
+}
+
 /** Waits in short slices, giving up the moment the run is killed. */
 async function backoff(ms: number): Promise<void> {
   const total = Math.max(0, Math.min(ms, MAX_RETRY_DELAY_MS));
