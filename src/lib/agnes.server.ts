@@ -40,6 +40,28 @@ const MAX_RETRY_DELAY_MS = 60_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Shared cool-down. A 429 / Cloudflare 1015 is an edge block on the whole
+ * account, not on one request, so EVERY caller waits it out instead of each
+ * one discovering the block for itself and extending it.
+ */
+let blockedUntil = 0;
+/** When the last upstream call was started, used to space calls apart. */
+let lastStart = 0;
+const MIN_GAP_MS = 2_000;
+
+async function waitForSlot(): Promise<void> {
+  for (;;) {
+    assertActive();
+    const now = Date.now();
+    const wait = Math.max(blockedUntil - now, lastStart + MIN_GAP_MS - now);
+    if (wait <= 0) break;
+    console.log(`[agnes] holding ${Math.round(wait / 1000)}s (shared cool-down)`);
+    await backoff(Math.min(wait, 10_000));
+  }
+  lastStart = Date.now();
+}
+
 /** Waits in short slices, giving up the moment the run is killed. */
 async function backoff(ms: number): Promise<void> {
   const total = Math.max(0, Math.min(ms, MAX_RETRY_DELAY_MS));
@@ -89,6 +111,9 @@ async function callAgnes(user: string, opts: ChatOptions): Promise<string> {
       const started = Date.now();
       // A killed run never makes another upstream request.
       assertActive();
+      // Respects any shared cool-down and keeps calls spaced apart, so a burst
+      // never triggers the provider's edge rate limit in the first place.
+      await waitForSlot();
       console.log(
         `[agnes] request attempt ${attempt + 1}/${attempts} model=${model()} inChars=${user.length} maxOut=${Math.min(MAX_OUT, opts.maxOutputTokens ?? 16_000)}`,
       );
@@ -153,8 +178,17 @@ async function callAgnes(user: string, opts: ChatOptions): Promise<string> {
           const base = rateLimited
             ? Math.min(MAX_RETRY_DELAY_MS, 60_000 * 2 ** attempt)
             : 3_000 * (attempt + 1);
+          const wait = retryAfter > 0 ? Math.max(retryAfter * 1000 + 500, base) : base;
+          if (rateLimited) {
+            // Every other caller waits this out too, instead of each one hitting
+            // the same block and extending it.
+            blockedUntil = Math.max(blockedUntil, Date.now() + wait);
+            console.error(
+              `[agnes] rate limited (${res.status}) — all requests paused for ${Math.round(wait / 1000)}s`,
+            );
+          }
           if (attempt + 1 < attempts) {
-            await backoff(retryAfter > 0 ? Math.max(retryAfter * 1000 + 500, base) : base);
+            await backoff(wait);
           }
           continue;
         }

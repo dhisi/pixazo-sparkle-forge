@@ -674,15 +674,18 @@ function Index() {
             // take days.
             let res: { prompts: string[] } | undefined;
             let lastErr: unknown;
-            for (let attempt = 0; attempt < 6 && !cancelRef.current; attempt++) {
+            for (let attempt = 0; attempt < 8 && !cancelRef.current; attempt++) {
               if (attempt > 0) {
                 const why = lastErr instanceof Error ? lastErr.message : "";
                 const limited = /rate limit|busy|1015|429|too many/i.test(why);
+                // A 1015 block clears on its own clock: waiting longer (and
+                // growing the wait) is what actually gets the range written,
+                // while a short retry only extends the block.
+                const wait = limited ? Math.min(180_000, 45_000 * attempt) : 3_000 * attempt;
                 setNote(
-                  `${limited ? "Agnes briefly blocked the request — short cooldown" : "Retrying"} — timestamps ${range.from}-${range.to} (try ${attempt + 1})`,
+                  `${limited ? `Writer is rate limited — waiting ${Math.round(wait / 1000)}s` : "Retrying"} — timestamps ${range.from}-${range.to} (try ${attempt + 1})`,
                 );
-                // Short waits only: long cool-downs made the page look frozen.
-                await new Promise((r) => setTimeout(r, limited ? 15_000 : 3_000 * attempt));
+                await new Promise((r) => setTimeout(r, wait));
                 if (cancelRef.current) break;
               }
               try {
